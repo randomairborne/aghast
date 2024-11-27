@@ -120,8 +120,13 @@ async fn event_loop(
                 break;
             }
             Ok(v) => v,
+            // an error occurs if we try to send a command while the gateway is starting.
+            // if we're shutting down anyway... just break
             Err(e) => {
                 eprintln!("ERROR: {e:?}");
+                if cancel.is_cancelled() {
+                    break;
+                }
                 continue;
             }
         };
