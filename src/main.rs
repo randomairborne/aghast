@@ -221,6 +221,21 @@ async fn handle_guild_message(
     Ok(())
 }
 
+async fn send_user_message_to_thread(
+    client: &Client,
+    channel: Id<ChannelMarker>,
+    message: &str,
+    components: &[Component],
+) -> Result<(), twilight_http::Error> {
+    client
+        .create_message(channel)
+        .content(message)
+        .components(components)
+        .allowed_mentions(Some(&AllowedMentions::default()))
+        .await?;
+    Ok(())
+}
+
 async fn handle_user_message(state: AppState, mc: MessageCreate) -> Result<(), Error> {
     let channel = if let Some(user_info) = get_ticket_by_dm(&state.db, mc.channel_id).await? {
         user_info.thread
@@ -229,38 +244,19 @@ async fn handle_user_message(state: AppState, mc: MessageCreate) -> Result<(), E
     };
     let components = attachments_to_components(mc.attachments.clone());
     let message = format!("<@{}>: {}", mc.author.id, mc.content);
-    match state
-        .client
-        .create_message(channel)
-        .content(&message)
-        .components(&components)
-        .allowed_mentions(Some(&AllowedMentions::default()))
-        .await
-    {
-        Err(e) => {
-            if let twilight_http::error::ErrorType::Response { status, .. } = e.kind() {
-                if status.get() == 404 {
-                    delete_ticket(&state.db, channel).await?;
-                    // Now that we've cleaned up our bad state, try to restart the interaction
-                    let ticket_channel = new_ticket(&state, &mc.author, mc.channel_id).await?;
-                    state
-                        .client
-                        .create_message(ticket_channel)
-                        .content(&message)
-                        .components(&components)
-                        .allowed_mentions(Some(&AllowedMentions::default()))
-                        .await?;
-                    Ok(())
-                } else {
-                    Err(e)
-                }
-            } else {
-                Err(e)
-            }
+    let thread_response =
+        send_user_message_to_thread(&state.client, channel, &message, &components).await;
+    match thread_response.as_ref().map_err(twilight_http::Error::kind) {
+        Err(twilight_http::error::ErrorType::Response { status, .. }) if status.get() == 404 => {
+            delete_ticket(&state.db, channel).await?;
+            // Now that we've cleaned up our bad state, try to restart the interaction
+            let ticket_channel = new_ticket(&state, &mc.author, mc.channel_id).await?;
+            send_user_message_to_thread(&state.client, ticket_channel, &message, &components)
+                .await?;
+            Ok(())
         }
-        Ok(_) => Ok(()),
-    }?;
-    Ok(())
+        _ => thread_response.map_err(Into::into),
+    }
 }
 
 async fn new_ticket(
