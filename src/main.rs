@@ -160,7 +160,7 @@ async fn handle_message(state: AppState, mc: MessageCreate) -> Result<(), Error>
             handle_guild_message_error_report_wrapper(state, mc, ticket_user).await?;
         }
     } else if mc.guild_id.is_none() {
-        handle_user_message(state, mc, false).await?;
+        handle_user_message(state, mc).await?;
     }
     Ok(())
 }
