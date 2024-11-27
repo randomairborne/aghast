@@ -1,5 +1,5 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use sqlx::{
     query,
@@ -8,7 +8,12 @@ use sqlx::{
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
-use twilight_http::{request::channel::reaction::RequestReactionType, Client};
+use twilight_http::{
+    api_error::{ApiError, GeneralApiError},
+    request::channel::reaction::RequestReactionType,
+    response::StatusCode,
+    Client,
+};
 use twilight_model::{
     channel::{
         message::{
@@ -22,9 +27,10 @@ use twilight_model::{
         presence::{Activity, ActivityType, Status},
     },
     id::{
-        marker::{ChannelMarker, GuildMarker},
+        marker::{ChannelMarker, GuildMarker, UserMarker},
         Id,
     },
+    user::User,
 };
 use valk_utils::{get_var, parse_var};
 
@@ -42,7 +48,10 @@ fn main() {
         .build()
         .unwrap();
 
-    let intents = Intents::DIRECT_MESSAGES | Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT;
+    let intents = Intents::DIRECT_MESSAGES
+        | Intents::GUILD_MESSAGES
+        | Intents::GUILDS
+        | Intents::MESSAGE_CONTENT;
     let client = Client::new(token.clone());
     let shard = rt.block_on(async { twilight_gateway::Shard::new(ShardId::ONE, token, intents) });
     let shard_handle = shard.sender();
@@ -82,8 +91,10 @@ fn main() {
         // then wait for it to shut down, then clean up
         vss::shutdown_signal().await;
         cancel.cancel();
-        shard_handle.close(CloseFrame::NORMAL).ok();
-        main.await.ok();
+        let _ = shard_handle
+            .close(CloseFrame::NORMAL)
+            .inspect_err(report_inspect);
+        let _ = main.await.inspect_err(report_inspect);
         tasks.close();
         tasks.wait().await;
         db.close().await;
@@ -96,7 +107,9 @@ async fn async_main(
     cancel: CancellationToken,
     tasks: TaskTracker,
 ) {
-    let events = EventTypeFlags::MESSAGE_CREATE;
+    let events = EventTypeFlags::MESSAGE_CREATE
+        | EventTypeFlags::THREAD_DELETE
+        | EventTypeFlags::THREAD_UPDATE;
     while let Some(event) = shard.next_event(events).await {
         let event = match event {
             // we special-case gateway close so that we properly exit from the shard handle close
@@ -120,8 +133,21 @@ async fn handle_event_ew(state: AppState, event: Event) {
 }
 
 async fn handle_event(state: AppState, event: Event) -> Result<(), Error> {
-    if let Event::MessageCreate(mc) = event {
-        Box::pin(handle_message(state, *mc)).await?;
+    match event {
+        Event::MessageCreate(mc) => Box::pin(handle_message(state, *mc)).await?,
+        Event::ThreadDelete(td) if td.parent_id == state.channel => {
+            handle_thread_delete(state, td.id).await;
+        }
+        Event::ThreadUpdate(tu)
+            if tu.parent_id == Some(state.channel)
+                && tu
+                    .thread_metadata
+                    .as_ref()
+                    .is_some_and(|v| v.archived || v.locked) =>
+        {
+            handle_thread_delete(state, tu.id).await;
+        }
+        _ => {}
     };
     Ok(())
 }
@@ -235,6 +261,24 @@ async fn handle_user_message(state: AppState, mc: MessageCreate) -> Result<(), E
         .allowed_mentions(Some(&AllowedMentions::default()))
         .await?;
     Ok(())
+}
+
+async fn handle_thread_delete(state: AppState, thread: Id<ChannelMarker>) {
+    let Ok(Some(ticket)) = get_ticket_by_thread(&state.db, thread)
+        .await
+        .inspect_err(report_inspect)
+    else {
+        return;
+    };
+    let _ = delete_ticket(&state.db, ticket.thread)
+        .await
+        .inspect_err(report_inspect);
+    let _ = state
+        .client
+        .create_message(ticket.dm)
+        .content(&state.close_message)
+        .await
+        .inspect_err(report_inspect);
 }
 
 fn get_activity() -> Activity {
@@ -360,6 +404,10 @@ fn attachment_button(attachment: Attachment) -> Component {
         style: ButtonStyle::Link,
         url: Some(attachment.url),
     })
+}
+
+fn report_inspect<E: Debug>(e: &E) {
+    eprintln!("ERROR: {e:?}");
 }
 
 #[derive(Clone, Copy, Debug)]
