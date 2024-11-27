@@ -1,0 +1,8 @@
+/target
+.env
+
+Cargo.lock
+
+*.db
+*.db-shm
+*.db-wal

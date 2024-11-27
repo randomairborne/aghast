@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT dm FROM tickets WHERE thread = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "dm",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9bd399fe24ddd7feea85880be110ca2378b4478aa4f007559c25d2f03b8a6cbb"
+}

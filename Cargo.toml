@@ -1,0 +1,19 @@
+[package]
+name = "aghast"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "tls-none", "migrate", "macros"] }
+
+tokio = { version = "1", features = ["rt"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+twilight-gateway = "0.16.0-rc.1"
+twilight-model = "0.16.0-rc.1"
+twilight-http = "0.16.0-rc.1"
+
+valk-utils = "0.1"
+thiserror = "2"
+vss = "0.1"
+
