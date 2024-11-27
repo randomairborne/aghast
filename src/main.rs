@@ -8,10 +8,7 @@ use sqlx::{
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
-use twilight_http::{
-    request::channel::reaction::RequestReactionType,
-    Client,
-};
+use twilight_http::{request::channel::reaction::RequestReactionType, Client};
 use twilight_model::{
     channel::{
         message::{
