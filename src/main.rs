@@ -15,10 +15,10 @@ use twilight_model::{
             component::{ActionRow, Button, ButtonStyle},
             AllowedMentions, Component, ReactionType,
         },
-        Attachment,
+        Attachment, Message,
     },
     gateway::{
-        payload::{incoming::MessageCreate, outgoing::UpdatePresence},
+        payload::{incoming::MessageUpdate, outgoing::UpdatePresence},
         presence::{Activity, ActivityType, Status},
     },
     id::{
@@ -103,6 +103,7 @@ async fn event_loop(
     tasks: TaskTracker,
 ) {
     let events = EventTypeFlags::MESSAGE_CREATE
+        | EventTypeFlags::MESSAGE_UPDATE
         | EventTypeFlags::THREAD_DELETE
         | EventTypeFlags::THREAD_UPDATE;
     while let Some(event) = shard.next_event(events).await {
@@ -129,7 +130,8 @@ async fn handle_event_ew(state: AppState, event: Event) {
 
 async fn handle_event(state: AppState, event: Event) -> Result<(), Error> {
     match event {
-        Event::MessageCreate(mc) => Box::pin(handle_message(state, *mc)).await?,
+        Event::MessageCreate(mc) => Box::pin(handle_message(state, mc.0)).await?,
+        Event::MessageUpdate(mu) => Box::pin(handle_message_update(state, *mu)).await?,
         Event::ThreadDelete(td) if td.parent_id == state.channel => {
             handle_thread_delete(state, td.id).await;
         }
@@ -147,7 +149,7 @@ async fn handle_event(state: AppState, event: Event) -> Result<(), Error> {
     Ok(())
 }
 
-async fn handle_message(state: AppState, mc: MessageCreate) -> Result<(), Error> {
+async fn handle_message(state: AppState, mc: Message) -> Result<(), Error> {
     if mc.author.bot {
         // do nothing
     } else if mc.guild_id.is_some_and(|id| id == state.guild) {
@@ -160,9 +162,26 @@ async fn handle_message(state: AppState, mc: MessageCreate) -> Result<(), Error>
     Ok(())
 }
 
+async fn handle_message_update(state: AppState, mu: MessageUpdate) -> Result<(), Error> {
+    let channel = if mu.guild_id.is_none() {
+        get_ticket_by_dm(&state.db, mu.channel_id).await?
+    } else {
+        None
+    };
+
+    if let (Some(channel), Some(content)) = (channel, mu.content) {
+        let message = format!("message edited: {content}");
+        state
+            .client
+            .create_message(channel.thread)
+            .content(&message)
+            .await?;
+    }
+    Ok(())
+}
 async fn handle_guild_message_error_report_wrapper(
     state: AppState,
-    mc: MessageCreate,
+    mc: Message,
     ticket: TicketInfo,
 ) -> Result<(), Error> {
     let channel_id = mc.channel_id;
@@ -182,7 +201,7 @@ async fn handle_guild_message_error_report_wrapper(
 
 async fn handle_guild_message(
     state: AppState,
-    mc: MessageCreate,
+    mc: Message,
     ticket: TicketInfo,
 ) -> Result<(), Error> {
     if mc.content == "!close" {
@@ -236,7 +255,7 @@ async fn send_user_message_to_thread(
     Ok(())
 }
 
-async fn handle_user_message(state: AppState, mc: MessageCreate) -> Result<(), Error> {
+async fn handle_user_message(state: AppState, mc: Message) -> Result<(), Error> {
     let channel = if let Some(user_info) = get_ticket_by_dm(&state.db, mc.channel_id).await? {
         user_info.thread
     } else {
