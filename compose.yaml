@@ -1,0 +1,10 @@
+services:
+  xpd-gateway:
+    image: ghcr.io/randomairborne/aghast:latest
+    restart: unless-stopped
+    env_file:
+      - aghast.env
+    environment:
+      AGHAST_DB_URL: "sqlite://var/lib/aghast/aghast.db"
+    volumes:
+      - ./aghast-data/:/var/lib/aghast/
