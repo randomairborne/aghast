@@ -81,10 +81,13 @@ fn main() {
 
     let main = rt.spawn(event_loop(state, shard, cancel.clone(), tasks.clone()));
 
+    eprintln!("Event loop started");
+
     rt.block_on(async move {
         // we need to do all these things in this order so that we tell everything to shut down,
         // then wait for it to shut down, then clean up
         vss::shutdown_signal().await;
+        eprintln!("Shutting down");
         cancel.cancel();
         let _ = shard_handle
             .close(CloseFrame::NORMAL)
