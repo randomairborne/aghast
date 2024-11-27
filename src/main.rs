@@ -9,9 +9,7 @@ use sqlx::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
 use twilight_http::{
-    api_error::{ApiError, GeneralApiError},
     request::channel::reaction::RequestReactionType,
-    response::StatusCode,
     Client,
 };
 use twilight_model::{
@@ -27,7 +25,7 @@ use twilight_model::{
         presence::{Activity, ActivityType, Status},
     },
     id::{
-        marker::{ChannelMarker, GuildMarker, UserMarker},
+        marker::{ChannelMarker, GuildMarker},
         Id,
     },
     user::User,
