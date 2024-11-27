@@ -30,7 +30,7 @@ use twilight_model::{
 use valk_utils::{get_var, parse_var};
 
 const HELP_MESSAGE: &str =
-    "`!r <message>` to reply to a ticket, `!close` to close a ticket, `!help` to show this message";
+    "`!r <message>` to reply to a ticket, `!close` to close a ticket, `!help` to show this message.";
 
 fn main() {
     let token = get_var("AGHAST_TOKEN");
