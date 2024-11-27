@@ -79,7 +79,7 @@ fn main() {
         close_message,
     };
 
-    let main = rt.spawn(async_main(state, shard, cancel.clone(), tasks.clone()));
+    let main = rt.spawn(event_loop(state, shard, cancel.clone(), tasks.clone()));
 
     rt.block_on(async move {
         // we need to do all these things in this order so that we tell everything to shut down,
@@ -96,7 +96,7 @@ fn main() {
     });
 }
 
-async fn async_main(
+async fn event_loop(
     state: AppState,
     mut shard: Shard,
     cancel: CancellationToken,
