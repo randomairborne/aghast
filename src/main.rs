@@ -21,6 +21,7 @@ use twilight_model::{
         payload::{incoming::MessageUpdate, outgoing::UpdatePresence},
         presence::{Activity, ActivityType, Status},
     },
+    http::attachment::Attachment as HttpAttachment,
     id::{
         marker::{ChannelMarker, GuildMarker},
         Id,
@@ -210,7 +211,14 @@ async fn handle_guild_message(
     mc: Message,
     ticket: TicketInfo,
 ) -> Result<(), Error> {
-    if mc.content == "!close" {
+    if mc.content == "!help" {
+        state
+            .client
+            .create_message(mc.channel_id)
+            .reply(mc.id)
+            .content(HELP_MESSAGE)
+            .await?;
+    } else if mc.content == "!close" {
         delete_ticket(&state.db, ticket.thread).await?;
         let msg = if let Err(e) = state
             .client
@@ -228,19 +236,27 @@ async fn handle_guild_message(
             .reply(mc.id)
             .content(&msg)
             .await?;
-    } else if mc.content == "!help" {
-        state
-            .client
-            .create_message(mc.channel_id)
-            .reply(mc.id)
-            .content(HELP_MESSAGE)
-            .await?;
-    } else if let Some(("!r", content)) = mc.content.split_once(' ') {
+    } else if mc.content.starts_with("!r") {
+        let content = &mc.content.trim_start_matches("!r").trim();
+        let (attachments, errors) = attachments_to_attachments(&mc.attachments).await;
         state
             .client
             .create_message(ticket.dm)
             .content(content)
+            .attachments(&attachments)
             .await?;
+        if !errors.is_empty() {
+            // each error is independently fallible, so we send as much as we can
+            let error_report: String =
+                std::iter::once("# errors encountered uploading attachments:\n".to_string())
+                    .chain(errors.iter().map(|e| format!("`{e:?}`\n")))
+                    .collect();
+            state
+                .client
+                .create_message(mc.channel_id)
+                .content(&error_report)
+                .await?;
+        }
         state
             .client
             .create_reaction(
@@ -440,6 +456,33 @@ fn attachments_to_components(attachments: Vec<Attachment>) -> Vec<Component> {
     output.into_iter().map(link_button_row).collect()
 }
 
+async fn attachments_to_attachments(
+    attachments: &[Attachment],
+) -> (Vec<HttpAttachment>, Vec<Error>) {
+    let attachment_attempts =
+        futures_util::future::join_all(attachments.iter().map(attachment_to_attachment)).await;
+    let mut attachments = Vec::with_capacity(attachments.len());
+    let mut errors = Vec::new();
+    for attachment_attempt in attachment_attempts {
+        match attachment_attempt {
+            Ok(a) => attachments.push(a),
+            Err(e) => errors.push(e),
+        }
+    }
+    (attachments, errors)
+}
+
+async fn attachment_to_attachment(attachment: &Attachment) -> Result<HttpAttachment, Error> {
+    let client = reqwest::Client::new();
+    let body = client.get(&attachment.url).send().await?.bytes().await?;
+    Ok(HttpAttachment {
+        description: attachment.description.clone(),
+        filename: attachment.filename.clone(),
+        id: attachment.id.get(),
+        file: body.to_vec(),
+    })
+}
+
 fn link_button_row(attachments: Vec<Attachment>) -> Component {
     let components = attachments.into_iter().map(attachment_button).collect();
     Component::ActionRow(ActionRow { components })
@@ -484,6 +527,8 @@ enum Error {
     Sqlx(#[from] sqlx::Error),
     #[error("{0}")]
     Http(#[from] twilight_http::Error),
+    #[error("{0}")]
+    CdnHttp(#[from] reqwest::Error),
     #[error("{0}")]
     HttpBody(#[from] twilight_http::response::DeserializeBodyError),
 }

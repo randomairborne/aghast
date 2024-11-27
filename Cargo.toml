@@ -8,6 +8,9 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "tls-none", "mi
 
 tokio = { version = "1", features = ["rt"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+futures-util = "0.3"
+
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "http2", "hickory-dns"] }
 
 twilight-gateway = { version = "0.16.0-rc.1", default-features = false, features = ["rustls-webpki-roots"] }
 twilight-http = { version = "0.16.0-rc.1", default-features = false, features = ["rustls-webpki-roots", "hickory"] }
