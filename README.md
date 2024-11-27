@@ -19,7 +19,7 @@ AGHAST_OPEN_MESSAGE=<message to send to a user to confirm a report has been open
 AGHAST_CLOSE_MESSAGE=<message to send a user when a report is closed>
 ```
 
-If you're running the bot seperately, you can also set `AGHAST_DB_URL` seperately.
+If you're running the bot outside of docker, you can also set `AGHAST_DB_URL` seperately.
 
 ```dotenv
 AGHAST_DB_URL=<"sqlite://aghast.db" or a similar sqlite url>
