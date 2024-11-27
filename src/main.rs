@@ -29,6 +29,9 @@ use twilight_model::{
 };
 use valk_utils::{get_var, parse_var};
 
+const HELP_MESSAGE: &str =
+    "`!r <message>` to reply to a ticket, `!close` to close a ticket, `!help` to show this message";
+
 fn main() {
     let token = get_var("AGHAST_TOKEN");
     let database: SqliteConnectOptions = parse_var("AGHAST_DB_URL");
@@ -225,6 +228,13 @@ async fn handle_guild_message(
             .reply(mc.id)
             .content(&msg)
             .await?;
+    } else if mc.content == "!help" {
+        state
+            .client
+            .create_message(mc.channel_id)
+            .reply(mc.id)
+            .content(HELP_MESSAGE)
+            .await?;
     } else if let Some(("!r", content)) = mc.content.split_once(' ') {
         state
             .client
@@ -243,41 +253,35 @@ async fn handle_guild_message(
     Ok(())
 }
 
-async fn send_user_message_to_thread(
-    client: &Client,
-    channel: Id<ChannelMarker>,
-    message: &str,
-    components: &[Component],
-) -> Result<(), twilight_http::Error> {
-    client
-        .create_message(channel)
-        .content(message)
-        .components(components)
-        .allowed_mentions(Some(&AllowedMentions::default()))
-        .await?;
-    Ok(())
-}
-
 async fn handle_user_message(state: AppState, mc: Message) -> Result<(), Error> {
-    let channel = if let Some(user_info) = get_ticket_by_dm(&state.db, mc.channel_id).await? {
-        user_info.thread
-    } else {
-        new_ticket(&state, &mc.author, mc.channel_id).await?
-    };
     let components = attachments_to_components(mc.attachments.clone());
     let message = format!("<@{}>: {}", mc.author.id, mc.content);
-    let thread_response =
-        send_user_message_to_thread(&state.client, channel, &message, &components).await;
-    match thread_response.as_ref().map_err(twilight_http::Error::kind) {
+
+    let Some(ticket) = get_ticket_by_dm(&state.db, mc.channel_id).await? else {
+        new_ticket(&state, &mc.author, mc.channel_id, &message, &components).await?;
+        return Ok(());
+    };
+    let message_response = state
+        .client
+        .create_message(ticket.thread)
+        .content(&message)
+        .components(&components)
+        .allowed_mentions(Some(&AllowedMentions::default()))
+        .await;
+
+    // This error handling exists in case the database gets into a bad state. We don't want to report
+    // verbose errors to users for security reasons, so instead we give recreating the message a shot.
+    match message_response
+        .as_ref()
+        .map_err(twilight_http::Error::kind)
+    {
         Err(twilight_http::error::ErrorType::Response { status, .. }) if status.get() == 404 => {
-            delete_ticket(&state.db, channel).await?;
+            delete_ticket(&state.db, ticket.thread).await?;
             // Now that we've cleaned up our bad state, try to restart the interaction
-            let ticket_channel = new_ticket(&state, &mc.author, mc.channel_id).await?;
-            send_user_message_to_thread(&state.client, ticket_channel, &message, &components)
-                .await?;
+            new_ticket(&state, &mc.author, mc.channel_id, &message, &components).await?;
             Ok(())
         }
-        _ => thread_response.map_err(Into::into),
+        _ => message_response.map(|_| ()).map_err(Into::into),
     }
 }
 
@@ -285,16 +289,16 @@ async fn new_ticket(
     state: &AppState,
     author: &User,
     dm_id: Id<ChannelMarker>,
-) -> Result<Id<ChannelMarker>, Error> {
-    let content = format!(
-        "<@{}> has created a ticket. \t `!r <message>` to reply, `!close` to close",
-        author.id
-    );
+    content: &str,
+    components: &[Component],
+) -> Result<TicketInfo, Error> {
     let new_post = state
         .client
         .create_forum_thread(state.channel, &author.name)
         .message()
-        .content(&content)
+        .content(content)
+        .components(components)
+        .allowed_mentions(Some(&AllowedMentions::default()))
         .await?
         .model()
         .await?;
@@ -305,7 +309,10 @@ async fn new_ticket(
         .content(&state.open_message)
         .await
         .inspect_err(report_inspect);
-    Ok(new_post.channel.id)
+    Ok(TicketInfo {
+        thread: new_post.channel.id,
+        dm: dm_id,
+    })
 }
 
 async fn handle_thread_delete(state: AppState, thread: Id<ChannelMarker>) {
