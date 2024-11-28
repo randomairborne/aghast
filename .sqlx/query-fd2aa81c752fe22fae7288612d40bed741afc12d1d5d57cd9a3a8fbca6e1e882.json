@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT dm_channel, thread_channel, dm_message, thread_message FROM ticket_messages WHERE dm_message = ?1 OR thread_message = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "dm_channel",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "thread_channel",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "dm_message",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "thread_message",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fd2aa81c752fe22fae7288612d40bed741afc12d1d5d57cd9a3a8fbca6e1e882"
+}

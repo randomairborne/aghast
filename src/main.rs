@@ -1,5 +1,5 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-use std::{fmt::Debug, sync::Arc};
+use std::{borrow::Cow, fmt::Debug, sync::Arc};
 
 use sqlx::{
     query,
@@ -23,7 +23,7 @@ use twilight_model::{
     },
     http::attachment::Attachment as HttpAttachment,
     id::{
-        marker::{ChannelMarker, GuildMarker},
+        marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
         Id,
     },
     user::User,
@@ -74,10 +74,16 @@ fn main() {
     rt.block_on(sqlx::migrate!().run(&db))
         .expect("Failed to run migrations");
 
+
+    let bot_id = rt.block_on(async {
+        client.current_user().await.expect("Failed to get current user").model().await.expect("Failed to deserialize current user").id
+    });
+
     let state = AppState {
         client: Arc::new(client),
         channel,
         guild,
+        bot_id,
         db: db.clone(),
         open_message,
         close_message,
@@ -101,6 +107,27 @@ fn main() {
         tasks.wait().await;
         db.close().await;
     });
+}
+
+fn get_activity() -> Activity {
+    Activity {
+        application_id: None,
+        assets: None,
+        buttons: Vec::new(),
+        created_at: None,
+        details: None,
+        emoji: None,
+        flags: None,
+        id: None,
+        instance: None,
+        kind: ActivityType::Watching,
+        name: "DM to talk to moderators!".to_string(),
+        party: None,
+        secrets: None,
+        state: None,
+        timestamps: None,
+        url: None,
+    }
 }
 
 async fn event_loop(
@@ -165,7 +192,7 @@ async fn handle_message(state: AppState, mc: Message) -> Result<(), Error> {
     if mc.author.bot {
         // do nothing
     } else if mc.guild_id.is_some_and(|id| id == state.guild) {
-        if let Some(ticket_user) = get_ticket_by_thread(&state.db, mc.channel_id).await? {
+        if let Some(ticket_user) = get_ticket(&state.db, mc.channel_id).await? {
             handle_guild_message_error_report_wrapper(state, mc, ticket_user).await?;
         }
     } else if mc.guild_id.is_none() {
@@ -175,30 +202,56 @@ async fn handle_message(state: AppState, mc: Message) -> Result<(), Error> {
 }
 
 async fn handle_message_update(state: AppState, mu: MessageUpdate) -> Result<(), Error> {
-    let channel = if mu.guild_id.is_none() {
-        get_ticket_by_dm(&state.db, mu.channel_id).await?
-    } else {
-        None
+    // we can't do things with no content or author
+    let (Some(content), Some(author)) = (mu.content, mu.author) else {
+        return Ok(());
     };
 
-    if let (Some(channel), Some(content)) = (channel, mu.content) {
-        let message = format!("message edited: {content}");
-        state
-            .client
-            .create_message(channel.thread)
-            .content(&message)
-            .await?;
+    // if we edited the message, someone else created the counterpart- and we aren't allowed to edit it.
+    if author.id == state.bot_id {
+        return Ok(())
     }
+
+    // if a user already got a close message, they won't be suprised their edits aren't tracked.
+    let counterparted = get_counterpart(&state.db, mu.id)
+        .await?
+        .ok_or(Error::NoCounterpart)?;
+
+
+    // this means the edited message was in DMs, so the first branch of the if is for editing in
+    // the forum.
+    let (to_edit, content) = if counterparted.dm.channel == mu.channel_id {
+        (
+            counterparted.thread,
+            Cow::Owned(format!("<@{}>: {content}", author.id)),
+        )
+    } else if !content.starts_with("!r ") { // We don't want to mess with things that don't start with !r outside of dms
+        return Ok(());
+    } else {
+        (
+            counterparted.dm,
+            Cow::Borrowed(content.trim_start_matches("!r").trim()),
+        )
+    };
+
+    eprintln!("editing message {}", to_edit.message);
+
+    state
+        .client
+        .update_message(to_edit.channel, to_edit.message)
+        .content(Some(&content))
+        .await?;
     Ok(())
 }
+
 async fn handle_guild_message_error_report_wrapper(
     state: AppState,
     mc: Message,
-    ticket: TicketInfo,
+    ticket_channels: TicketChannels,
 ) -> Result<(), Error> {
     let channel_id = mc.channel_id;
     let reply_id = mc.id;
-    if let Err(e) = handle_guild_message(state.clone(), mc, ticket).await {
+    if let Err(e) = handle_guild_message(state.clone(), mc, ticket_channels).await {
         eprintln!("{e:?}");
         let msg = format!("Error handling command: `{e}`");
         state
@@ -214,7 +267,7 @@ async fn handle_guild_message_error_report_wrapper(
 async fn handle_guild_message(
     state: AppState,
     mc: Message,
-    ticket: TicketInfo,
+    ticket_channels: TicketChannels,
 ) -> Result<(), Error> {
     if mc.content == "!help" {
         state
@@ -224,10 +277,10 @@ async fn handle_guild_message(
             .content(HELP_MESSAGE)
             .await?;
     } else if mc.content == "!close" {
-        delete_ticket(&state.db, ticket.thread).await?;
+        delete_ticket(&state.db, ticket_channels.thread).await?;
         let msg = if let Err(e) = state
             .client
-            .create_message(ticket.dm)
+            .create_message(ticket_channels.dm)
             .content(&state.close_message)
             .await
         {
@@ -244,12 +297,12 @@ async fn handle_guild_message(
     } else if mc.content.starts_with("!r") {
         let content = &mc.content.trim_start_matches("!r").trim();
         let (attachments, errors) = attachments_to_attachments(&mc.attachments).await;
-        state
+        let dm_message = state
             .client
-            .create_message(ticket.dm)
+            .create_message(ticket_channels.dm)
             .content(content)
             .attachments(&attachments)
-            .await?;
+            .await?.model().await?;
         if !errors.is_empty() {
             // each error is independently fallible, so we send as much as we can
             let error_report: String =
@@ -262,14 +315,9 @@ async fn handle_guild_message(
                 .content(&error_report)
                 .await?;
         }
-        state
-            .client
-            .create_reaction(
-                mc.channel_id,
-                mc.id,
-                &RequestReactionType::Unicode { name: "✅" },
-            )
-            .await?;
+
+        store_message_counterpart(&state.db, ticket_channels, mc.id, dm_message.id).await?;
+        message_ack(&state.client, mc.channel_id, mc.id).await?;
     }
     Ok(())
 }
@@ -278,32 +326,61 @@ async fn handle_user_message(state: AppState, mc: Message) -> Result<(), Error> 
     let components = attachments_to_components(mc.attachments.clone());
     let message = format!("<@{}>: {}", mc.author.id, mc.content);
 
-    let Some(ticket) = get_ticket_by_dm(&state.db, mc.channel_id).await? else {
-        new_ticket(&state, &mc.author, mc.channel_id, &message, &components).await?;
+    let Some(channels) = get_ticket(&state.db, mc.channel_id).await? else {
+        let ticket = new_ticket(&state, &mc.author, mc.channel_id, &message, &components).await?;
+        store_message_counterpart(&state.db, ticket.channels, ticket.forum_post, mc.id).await?;
         return Ok(());
     };
+
     let message_response = state
         .client
-        .create_message(ticket.thread)
+        .create_message(channels.thread)
         .content(&message)
         .components(&components)
         .allowed_mentions(Some(&AllowedMentions::default()))
         .await;
 
+    let message_response = match message_response {
+        Ok(v) => Ok(v.model().await?),
+        Err(e) => Err(e),
+    };
+
     // This error handling exists in case the database gets into a bad state. We don't want to report
     // verbose errors to users for security reasons, so instead we give recreating the message a shot.
-    match message_response
+    let (channels, sent_message) = match message_response
         .as_ref()
         .map_err(twilight_http::Error::kind)
     {
+        // Return our fancy new ticket if we needed to make one
         Err(twilight_http::error::ErrorType::Response { status, .. }) if status.get() == 404 => {
-            delete_ticket(&state.db, ticket.thread).await?;
+            delete_ticket(&state.db, channels.thread).await?;
             // Now that we've cleaned up our bad state, try to restart the interaction
-            new_ticket(&state, &mc.author, mc.channel_id, &message, &components).await?;
-            Ok(())
+            let ticket =
+                new_ticket(&state, &mc.author, mc.channel_id, &message, &components).await?;
+            Ok((ticket.channels, ticket.forum_post))
         }
-        _ => message_response.map(|_| ()).map_err(Into::into),
-    }
+        // Just map the old response into a ticket
+        _ => message_response.map(|v| (channels, v.id)),
+    }?;
+
+    store_message_counterpart(&state.db, channels, sent_message, mc.id).await?;
+    message_ack(&state.client, mc.channel_id, mc.id).await?;
+    Ok(())
+}
+
+async fn message_ack(
+    client: &Client,
+    channel: Id<ChannelMarker>,
+    message: Id<MessageMarker>,
+) -> Result<(), Error> {
+    client
+        .create_reaction(
+            channel,
+            message,
+            &RequestReactionType::Unicode { name: "✅" },
+        )
+        .await?;
+    Ok(())
 }
 
 async fn new_ticket(
@@ -312,7 +389,7 @@ async fn new_ticket(
     dm_id: Id<ChannelMarker>,
     content: &str,
     components: &[Component],
-) -> Result<TicketInfo, Error> {
+) -> Result<NewTicket, Error> {
     let new_post = state
         .client
         .create_forum_thread(state.channel, &author.name)
@@ -330,14 +407,18 @@ async fn new_ticket(
         .content(&state.open_message)
         .await
         .inspect_err(report_inspect);
-    Ok(TicketInfo {
+    let channels = TicketChannels {
         thread: new_post.channel.id,
         dm: dm_id,
+    };
+    Ok(NewTicket {
+        channels,
+        forum_post: new_post.message.id,
     })
 }
 
 async fn handle_thread_delete(state: AppState, thread: Id<ChannelMarker>) {
-    let Ok(Some(ticket)) = get_ticket_by_thread(&state.db, thread)
+    let Ok(Some(ticket)) = get_ticket(&state.db, thread)
         .await
         .inspect_err(report_inspect)
     else {
@@ -352,27 +433,6 @@ async fn handle_thread_delete(state: AppState, thread: Id<ChannelMarker>) {
         .content(&state.close_message)
         .await
         .inspect_err(report_inspect);
-}
-
-fn get_activity() -> Activity {
-    Activity {
-        application_id: None,
-        assets: None,
-        buttons: Vec::new(),
-        created_at: None,
-        details: None,
-        emoji: None,
-        flags: None,
-        id: None,
-        instance: None,
-        kind: ActivityType::Watching,
-        name: "DM to talk to moderators!".to_string(),
-        party: None,
-        secrets: None,
-        state: None,
-        timestamps: None,
-        url: None,
-    }
 }
 
 async fn add_ticket(
@@ -392,34 +452,24 @@ async fn add_ticket(
     Ok(())
 }
 
-async fn get_ticket_by_dm(
+/// Because snowflakes are unique, you can load either a dm or a thread into here, and it will
+/// pop both right out.
+async fn get_ticket(
     db: &SqlitePool,
-    dm: Id<ChannelMarker>,
-) -> Result<Option<TicketInfo>, sqlx::Error> {
-    let db_dm = id_to_db(dm);
-    let info = query!("SELECT thread FROM tickets WHERE dm = ?1", db_dm)
-        .fetch_optional(db)
-        .await?
-        .map(|row| TicketInfo {
-            dm,
-            thread: db_to_id(row.thread),
-        });
+    channel: Id<ChannelMarker>,
+) -> Result<Option<TicketChannels>, sqlx::Error> {
+    let channel = id_to_db(channel);
+    let info = query!(
+        "SELECT thread, dm FROM tickets WHERE dm = ?1 OR thread = ?1",
+        channel
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|row| TicketChannels {
+        dm: db_to_id(row.dm),
+        thread: db_to_id(row.thread),
+    });
 
-    Ok(info)
-}
-
-async fn get_ticket_by_thread(
-    db: &SqlitePool,
-    thread: Id<ChannelMarker>,
-) -> Result<Option<TicketInfo>, sqlx::Error> {
-    let db_thread = id_to_db(thread);
-    let info = query!("SELECT dm FROM tickets WHERE thread = ?1", db_thread)
-        .fetch_optional(db)
-        .await?
-        .map(|row| TicketInfo {
-            dm: db_to_id(row.dm),
-            thread,
-        });
     Ok(info)
 }
 
@@ -429,6 +479,48 @@ async fn delete_ticket(db: &SqlitePool, thread: Id<ChannelMarker>) -> Result<(),
         .execute(db)
         .await?;
     Ok(())
+}
+
+async fn store_message_counterpart(
+    db: &SqlitePool,
+    ticket_channels: TicketChannels,
+    thread_message: Id<MessageMarker>,
+    dm_message: Id<MessageMarker>,
+) -> Result<(), Error> {
+    let thread_channel = id_to_db(ticket_channels.thread);
+    let dm_channel = id_to_db(ticket_channels.dm);
+    let thread_message = id_to_db(thread_message);
+    let dm_message = id_to_db(dm_message);
+    query!(
+        "INSERT INTO ticket_messages (dm_channel, thread_channel, dm_message, thread_message) \
+            VALUES (?1, ?2, ?3, ?4)",
+        dm_channel,
+        thread_channel,
+        dm_message,
+        thread_message
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn get_counterpart(
+    db: &SqlitePool,
+    message: Id<MessageMarker>,
+) -> Result<Option<CounterpartedMessage>, Error> {
+    let message = id_to_db(message);
+    let row = query!("SELECT dm_channel, thread_channel, dm_message, thread_message FROM ticket_messages WHERE dm_message = ?1 OR thread_message = ?1", message).fetch_optional(db).await?;
+    row.map_or(Ok(None), |row| {
+        let thread = ChannelMessage {
+            message: db_to_id(row.thread_message),
+            channel: db_to_id(row.thread_channel),
+        };
+        let dm = ChannelMessage {
+            message: db_to_id(row.dm_message),
+            channel: db_to_id(row.dm_channel),
+        };
+        Ok(Some(CounterpartedMessage { thread, dm }))
+    })
 }
 
 #[inline]
@@ -511,9 +603,27 @@ fn report_inspect<E: Debug>(e: &E) {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct TicketInfo {
+struct NewTicket {
+    channels: TicketChannels,
+    forum_post: Id<MessageMarker>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TicketChannels {
     dm: Id<ChannelMarker>,
     thread: Id<ChannelMarker>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ChannelMessage {
+    channel: Id<ChannelMarker>,
+    message: Id<MessageMarker>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CounterpartedMessage {
+    thread: ChannelMessage,
+    dm: ChannelMessage,
 }
 
 #[derive(Clone, Debug)]
@@ -523,6 +633,7 @@ pub struct AppState {
     close_message: Arc<str>,
     channel: Id<ChannelMarker>,
     guild: Id<GuildMarker>,
+    bot_id: Id<UserMarker>,
     db: SqlitePool,
 }
 
@@ -536,4 +647,6 @@ enum Error {
     CdnHttp(#[from] reqwest::Error),
     #[error("{0}")]
     HttpBody(#[from] twilight_http::response::DeserializeBodyError),
+    #[error("No counterpart for message")]
+    NoCounterpart,
 }

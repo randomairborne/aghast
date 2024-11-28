@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO ticket_messages (dm_channel, thread_channel, dm_message, thread_message) VALUES (?1, ?2, ?3, ?4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "35db7e7faa17d47e020dd6d50ed1698e9fef93f2e8b845c10573d56c3ac6717e"
+}
