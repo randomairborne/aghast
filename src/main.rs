@@ -1,25 +1,25 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-use axum::routing::post;
-use ed25519_dalek::Verifier;
-use hex::FromHex;
-use std::future::IntoFuture;
-use std::pin::pin;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, future::IntoFuture, net::SocketAddr, pin::pin, sync::Arc};
 
-use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
-use axum::{Json, Router};
-use ed25519_dalek::{Signature, VerifyingKey};
-use std::net::SocketAddr;
+use axum::{
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::post,
+    Json, Router,
+};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use hex::FromHex;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use twilight_http::Client;
-use twilight_model::application::interaction::Interaction;
-use twilight_model::http::interaction::InteractionResponse;
+use twilight_model::{
+    application::interaction::Interaction, http::interaction::InteractionResponse,
+};
 use valk_utils::get_var;
 
+mod extract;
 mod interact;
 
 fn main() {

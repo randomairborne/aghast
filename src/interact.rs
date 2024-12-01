@@ -1,21 +1,48 @@
+use std::fmt::Display;
+
 use niloecl::IntoResponse;
 use twilight_model::{
     application::interaction::{Interaction, InteractionType},
     channel::message::{
         component::{TextInput, TextInputStyle},
-        Component,
+        Component, MessageFlags,
     },
     http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType},
     id::{marker::ChannelMarker, Id},
 };
+use twilight_util::builder::{embed::EmbedBuilder, InteractionResponseDataBuilder};
 
-use crate::AppState;
+use crate::{extract::CidArgs, AppState};
+
+pub struct ErrorReport<T: Display>(pub T);
+
+impl<T: Display> IntoResponse for ErrorReport<T> {
+    fn into_response(self) -> InteractionResponse {
+        let embed = EmbedBuilder::new()
+            .description(format!("{}", self.0))
+            .build();
+        let data = InteractionResponseDataBuilder::new()
+            .flags(MessageFlags::EPHEMERAL)
+            .embeds([embed])
+            .build();
+        InteractionResponse {
+            kind: InteractionResponseType::ChannelMessageWithSource,
+            data: Some(data),
+        }
+    }
+}
 
 pub async fn handle_interaction(state: AppState, interaction: Interaction) -> InteractionResponse {
     match interaction.kind {
-        InteractionType::ApplicationCommand => niloecl::make_handler(app_command)(interaction, state).await,
-        InteractionType::MessageComponent => niloecl::make_handler(msg_component)(interaction, state).await,
-        InteractionType::ModalSubmit => niloecl::make_handler(modal_submit)(interaction, state).await,
+        InteractionType::ApplicationCommand => {
+            niloecl::make_handler(app_command)(interaction, state).await
+        }
+        InteractionType::MessageComponent => {
+            niloecl::make_handler(msg_component)(interaction, state).await
+        }
+        InteractionType::ModalSubmit => {
+            niloecl::make_handler(modal_submit)(interaction, state).await
+        }
         _ => PingPong.into_response(),
     }
 }
@@ -24,8 +51,10 @@ async fn app_command() -> PingPong {
     PingPong
 }
 
-async fn msg_component() -> PingPong {
-    PingPong
+async fn msg_component(
+    CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>,
+) -> InteractionResponse {
+    modal_activate(target_channel)
 }
 
 async fn modal_submit() -> PingPong {
@@ -56,7 +85,7 @@ fn modal_input(
         min_length: None,
         placeholder: Some(placeholder.into()),
         required: Some(true),
-        style: style.into(),
+        style,
         value: None,
     }
 }
