@@ -1,4 +1,5 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(clippy::module_name_repetitions)]
 use std::{fmt::Debug, future::IntoFuture, net::SocketAddr, pin::pin, sync::Arc};
 
 use axum::{

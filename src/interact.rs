@@ -1,18 +1,49 @@
 use std::fmt::Display;
 
-use niloecl::IntoResponse;
+use niloecl::{IntoResponse, State};
+use twilight_interactions::command::{CommandModel, CreateCommand};
 use twilight_model::{
     application::interaction::{Interaction, InteractionType},
     channel::message::{
-        component::{TextInput, TextInputStyle},
+        component::{ActionRow, Button, ButtonStyle, TextInput, TextInputStyle},
         Component, MessageFlags,
     },
+    guild::Permissions,
     http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType},
     id::{marker::ChannelMarker, Id},
 };
 use twilight_util::builder::{embed::EmbedBuilder, InteractionResponseDataBuilder};
 
-use crate::{extract::CidArgs, AppState};
+use crate::{
+    extract::{CidArgs, SlashCommand},
+    AppState,
+};
+
+#[derive(CommandModel, CreateCommand)]
+#[command(
+    name = "setup",
+    desc = "Initialize the modmail form",
+    dm_permission = false,
+    default_permissions = "Self::permissions"
+)]
+struct SetupCommand {
+    /// The message to send.
+    #[command(min_length = 1, max_length = 2000)]
+    message: String,
+    /// The text to put on the button
+    #[command(min_length = 1, max_length = 32)]
+    button_msg: String,
+    /// The channel to send the message in
+    button_channel: Id<ChannelMarker>,
+    /// The channel to create modmails in
+    modmail_channel: Id<ChannelMarker>,
+}
+
+impl SetupCommand {
+    const fn permissions() -> Permissions {
+        Permissions::ADMINISTRATOR
+    }
+}
 
 pub struct ErrorReport<T: Display>(pub T);
 
@@ -47,13 +78,40 @@ pub async fn handle_interaction(state: AppState, interaction: Interaction) -> In
     }
 }
 
-async fn app_command() -> PingPong {
-    PingPong
+async fn app_command(
+    State(state): State<AppState>,
+    SlashCommand(cmd): SlashCommand<SetupCommand>,
+) -> Result<InteractionResponse, InteractError> {
+    let embed = EmbedBuilder::new().description(cmd.message).build();
+    let submit_button = Component::Button(Button {
+        custom_id: Some(format!("open_form:{:X}", cmd.modmail_channel.get())),
+        disabled: false,
+        emoji: None,
+        label: Some(cmd.button_msg),
+        style: ButtonStyle::Primary,
+        url: None,
+    });
+    let submit_button_row = Component::ActionRow(ActionRow { components: vec![submit_button] });
+
+    state
+        .client
+        .create_message(cmd.button_channel)
+        .embeds(&[embed])
+        .components(&[submit_button_row])
+        .await?;
+
+    let data = InteractionResponseDataBuilder::new()
+        .flags(MessageFlags::EPHEMERAL)
+        .content("Creating button message")
+        .build();
+
+    Ok(InteractionResponse {
+        kind: InteractionResponseType::ChannelMessageWithSource,
+        data: Some(data),
+    })
 }
 
-async fn msg_component(
-    CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>,
-) -> InteractionResponse {
+async fn msg_component(CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>) -> ModalResponse {
     modal_activate(target_channel)
 }
 
@@ -90,7 +148,7 @@ fn modal_input(
     }
 }
 
-pub fn modal_activate(target_channel: Id<ChannelMarker>) -> InteractionResponse {
+pub fn modal_activate(target_channel: Id<ChannelMarker>) -> ModalResponse {
     let components = [
         modal_input(
             "user_id",
@@ -119,16 +177,45 @@ pub fn modal_activate(target_channel: Id<ChannelMarker>) -> InteractionResponse 
     ]
     .map(Component::TextInput)
     .to_vec();
+    let custom_id = format!("form_submit:{:X}", target_channel.get());
+    let title = "ModMail Form".to_string();
+    ModalResponse {
+        title,
+        custom_id,
+        components,
+    }
+}
 
-    let data = InteractionResponseData {
-        components: Some(components),
-        custom_id: Some(format!("open_resp:{:X}", target_channel.get())),
-        title: Some("ModMail Form".to_string()),
-        ..Default::default()
-    };
+#[derive(Debug, Clone)]
+pub struct ModalResponse {
+    title: String,
+    custom_id: String,
+    components: Vec<Component>,
+}
 
-    InteractionResponse {
-        kind: InteractionResponseType::Modal,
-        data: Some(data),
+impl IntoResponse for ModalResponse {
+    fn into_response(self) -> InteractionResponse {
+        let data = InteractionResponseData {
+            components: Some(self.components),
+            custom_id: Some(self.custom_id),
+            title: Some(self.title),
+            ..Default::default()
+        };
+        InteractionResponse {
+            kind: InteractionResponseType::Modal,
+            data: Some(data),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum InteractError {
+    #[error("HTTP error: {0}")]
+    Http(#[from] twilight_http::Error),
+}
+
+impl IntoResponse for InteractError {
+    fn into_response(self) -> InteractionResponse {
+        ErrorReport(self).into_response()
     }
 }

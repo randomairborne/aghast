@@ -1,18 +1,46 @@
 use std::{cmp::Ordering, str::FromStr};
 
 use niloecl::{FromRequest, IntoResponse};
+use twilight_interactions::command::CommandModel;
 use twilight_model::application::interaction::{Interaction, InteractionData, InteractionType};
 
 use crate::interact::ErrorReport;
 
-pub fn get_custom_id_rpc(custom_id: &str) -> Result<(&str, Vec<&str>), NoNameInRpc> {
-    let mut items_iter = custom_id.split(':');
-    let name = items_iter.next().ok_or(NoNameInRpc)?;
-    let args = items_iter.collect();
-    Ok((name, args))
+pub struct NoNameInRpc;
+
+pub struct SlashCommand<T: CommandModel>(pub T);
+
+impl<T: CommandModel, S: Send + Sync> FromRequest<S> for SlashCommand<T> {
+    type Rejection = SlashCommandRejection;
+
+    async fn from_request(req: &mut Interaction, _state: &S) -> Result<Self, Self::Rejection> {
+        let Some(data) = &req.data else {
+            return Err(SlashCommandRejection::NoInteractionData);
+        };
+        let InteractionData::ApplicationCommand(data) = data else {
+            return Err(SlashCommandRejection::WrongInteractionData(req.kind));
+        };
+        CommandModel::from_interaction((**data).clone().into())
+            .map_err(Into::into)
+            .map(SlashCommand)
+    }
 }
 
-pub struct NoNameInRpc;
+#[derive(Debug, thiserror::Error)]
+pub enum SlashCommandRejection {
+    #[error("Wrong type of interaction data")]
+    WrongInteractionData(InteractionType),
+    #[error("No interaction data")]
+    NoInteractionData,
+    #[error("Arguments could not be parsed")]
+    CommandParse(#[from] twilight_interactions::error::ParseError),
+}
+
+impl IntoResponse for SlashCommandRejection {
+    fn into_response(self) -> twilight_model::http::interaction::InteractionResponse {
+        ErrorReport(self).into_response()
+    }
+}
 
 pub struct CidArgs<T: FromCidArgs>(pub T);
 
@@ -20,6 +48,13 @@ impl<T: FromCidArgs, S: Sync> FromRequest<S> for CidArgs<T> {
     type Rejection = FromCidArgsRejection;
 
     async fn from_request(req: &mut Interaction, _state: &S) -> Result<Self, Self::Rejection> {
+        fn get_custom_id_rpc(custom_id: &str) -> Result<(&str, Vec<&str>), NoNameInRpc> {
+            let mut items_iter = custom_id.split(':');
+            let name = items_iter.next().ok_or(NoNameInRpc)?;
+            let args = items_iter.collect();
+            Ok((name, args))
+        }
+
         let Some(data) = &req.data else {
             return Err(FromCidArgsRejection::NoInteractionData);
         };
