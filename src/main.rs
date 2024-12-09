@@ -15,6 +15,7 @@ use hex::FromHex;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use twilight_http::Client;
+use twilight_interactions::command::CreateCommand;
 use twilight_model::{
     application::interaction::Interaction, http::interaction::InteractionResponse,
 };
@@ -50,6 +51,14 @@ fn main() {
         FromHex::from_hex(bot_info.verify_key).expect("Invalid signature hex");
     let key = VerifyingKey::from_bytes(&key).expect("Invalid signature bytes");
 
+    rt.block_on(
+        client
+            .interaction(bot_info.id)
+            .set_global_commands(&[interact::SetupCommand::create_command().into()])
+            .into_future(),
+    )
+    .expect("Failed to set global commands");
+
     let state = AppState {
         client: Arc::new(client),
         key,
@@ -63,11 +72,12 @@ fn main() {
         .block_on(TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 8080))))
         .expect("Failed to bind to 8080");
 
-    let mut main = rt.spawn(
+    let axum_cancel = cancel.clone();
+    let mut main = rt.spawn(async move {
         axum::serve(tcp, router)
-            .with_graceful_shutdown(cancel.clone().cancelled_owned())
-            .into_future(),
-    );
+            .with_graceful_shutdown(axum_cancel.cancelled_owned())
+            .await
+    });
 
     eprintln!("Event loop started");
 

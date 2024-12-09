@@ -26,7 +26,7 @@ use crate::{
     dm_permission = false,
     default_permissions = "Self::permissions"
 )]
-struct SetupCommand {
+pub struct SetupCommand {
     /// The message to send.
     #[command(min_length = 1, max_length = 2000)]
     message: String,
@@ -91,7 +91,9 @@ async fn app_command(
         style: ButtonStyle::Primary,
         url: None,
     });
-    let submit_button_row = Component::ActionRow(ActionRow { components: vec![submit_button] });
+    let submit_button_row = Component::ActionRow(ActionRow {
+        components: vec![submit_button],
+    });
 
     state
         .client
