@@ -17,7 +17,8 @@ use tokio_util::sync::CancellationToken;
 use twilight_http::Client;
 use twilight_interactions::command::CreateCommand;
 use twilight_model::{
-    application::interaction::Interaction, http::interaction::InteractionResponse,
+    application::interaction::Interaction,
+    http::interaction::InteractionResponse,
 };
 use valk_utils::get_var;
 
@@ -51,12 +52,13 @@ fn main() {
         FromHex::from_hex(bot_info.verify_key).expect("Invalid signature hex");
     let key = VerifyingKey::from_bytes(&key).expect("Invalid signature bytes");
 
-    rt.block_on(
+    rt.block_on(async {
         client
             .interaction(bot_info.id)
             .set_global_commands(&[interact::SetupCommand::create_command().into()])
-            .into_future(),
-    )
+            .into_future()
+            .await
+    })
     .expect("Failed to set global commands");
 
     let state = AppState {
@@ -119,7 +121,8 @@ async fn interaction_handler(
 
     let interaction: Interaction =
         serde_json::from_slice(&body).map_err(|_| RequestError::BadJson)?;
-    Ok(Json(interact::handle_interaction(state, interaction).await))
+    let response = interact::handle_interaction(state.clone(), interaction).await;
+    Ok(Json(response))
 }
 
 #[derive(Clone, Debug)]

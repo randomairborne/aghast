@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use niloecl::{IntoResponse, State};
 use twilight_interactions::command::{CommandModel, CreateCommand};
@@ -9,7 +9,7 @@ use twilight_model::{
         Component, MessageFlags,
     },
     guild::Permissions,
-    http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType},
+    http::interaction::{InteractionResponse, InteractionResponseType},
     id::{marker::ChannelMarker, Id},
 };
 use twilight_util::builder::{embed::EmbedBuilder, InteractionResponseDataBuilder};
@@ -45,13 +45,12 @@ impl SetupCommand {
     }
 }
 
-pub struct ErrorReport<T: Display>(pub T);
+pub struct ErrorReport<T: Display + Debug>(pub T);
 
-impl<T: Display> IntoResponse for ErrorReport<T> {
+impl<T: Display + Debug> IntoResponse for ErrorReport<T> {
     fn into_response(self) -> InteractionResponse {
-        let embed = EmbedBuilder::new()
-            .description(format!("{}", self.0))
-            .build();
+        eprint!("ERROR: {:?}", self.0);
+        let embed = EmbedBuilder::new().description(self.0.to_string()).build();
         let data = InteractionResponseDataBuilder::new()
             .flags(MessageFlags::EPHEMERAL)
             .embeds([embed])
@@ -84,11 +83,11 @@ async fn app_command(
 ) -> Result<InteractionResponse, InteractError> {
     let embed = EmbedBuilder::new().description(cmd.message).build();
     let submit_button = Component::Button(Button {
-        custom_id: Some(format!("open_form:{:X}", cmd.modmail_channel.get())),
+        custom_id: Some(format!("open_form:{}", cmd.modmail_channel.get())),
         disabled: false,
         emoji: None,
         label: Some(cmd.button_msg),
-        style: ButtonStyle::Primary,
+        style: ButtonStyle::Success,
         url: None,
     });
     let submit_button_row = Component::ActionRow(ActionRow {
@@ -141,8 +140,8 @@ fn modal_input(
     TextInput {
         custom_id: id.into(),
         label: label.into(),
-        max_length: None,
-        min_length: None,
+        max_length: Some(1000),
+        min_length: Some(15),
         placeholder: Some(placeholder.into()),
         required: Some(true),
         style,
@@ -154,8 +153,8 @@ pub fn modal_activate(target_channel: Id<ChannelMarker>) -> ModalResponse {
     let components = [
         modal_input(
             "user_id",
-            "User(s) you are reporting (please provide ID if you can)",
-            "wumpus",
+            "Username or ID of the user you wish to report", // this cannot be made longer
+            "wumpus or 302094807046684672",
             TextInputStyle::Short,
         ),
         modal_input(
@@ -177,9 +176,13 @@ pub fn modal_activate(target_channel: Id<ChannelMarker>) -> ModalResponse {
             TextInputStyle::Paragraph,
         ),
     ]
-    .map(Component::TextInput)
+    .map(|c| {
+        Component::ActionRow(ActionRow {
+            components: vec![Component::TextInput(c)],
+        })
+    })
     .to_vec();
-    let custom_id = format!("form_submit:{:X}", target_channel.get());
+    let custom_id = format!("form_submit:{}", target_channel.get());
     let title = "ModMail Form".to_string();
     ModalResponse {
         title,
@@ -197,12 +200,11 @@ pub struct ModalResponse {
 
 impl IntoResponse for ModalResponse {
     fn into_response(self) -> InteractionResponse {
-        let data = InteractionResponseData {
-            components: Some(self.components),
-            custom_id: Some(self.custom_id),
-            title: Some(self.title),
-            ..Default::default()
-        };
+        let data = InteractionResponseDataBuilder::new()
+            .title(self.title)
+            .custom_id(self.custom_id)
+            .components(self.components)
+            .build();
         InteractionResponse {
             kind: InteractionResponseType::Modal,
             data: Some(data),
