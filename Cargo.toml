@@ -14,13 +14,14 @@ twilight-http = { version = "0.16.0-rc.1", default-features = false, features = 
 twilight-util = { version = "0.16.0-rc.1", features = ["builder"] }
 twilight-interactions = "0.16.0-rc.1"
 twilight-model = "0.16.0-rc.1"
-niloecl = "0.1"
+niloecl = { version = "0.1", features = ["modal_submit"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 valk-utils = "0.1"
 thiserror = "2"
 vss = "0.1"
-
 ed25519-dalek = "2"
-serde_json = "1"
 hex = "0.4"
 

@@ -2,11 +2,21 @@ use std::{cmp::Ordering, str::FromStr};
 
 use niloecl::{FromRequest, IntoResponse};
 use twilight_interactions::command::CommandModel;
-use twilight_model::application::interaction::{Interaction, InteractionData, InteractionType};
+use twilight_model::{
+    application::interaction::{Interaction, InteractionData, InteractionType},
+    guild::PartialMember,
+};
 
 use crate::interact::ErrorReport;
 
 pub struct NoNameInRpc;
+
+fn get_custom_id_rpc(custom_id: &str) -> Result<(&str, Vec<&str>), NoNameInRpc> {
+    let mut items_iter = custom_id.split(':');
+    let name = items_iter.next().ok_or(NoNameInRpc)?;
+    let args = items_iter.collect();
+    Ok((name, args))
+}
 
 pub struct SlashCommand<T: CommandModel>(pub T);
 
@@ -42,19 +52,32 @@ impl IntoResponse for SlashCommandRejection {
     }
 }
 
+pub struct ExtractMember(pub PartialMember);
+
+impl<S: Sync> FromRequest<S> for ExtractMember {
+    type Rejection = ExtractMemberError;
+
+    async fn from_request(req: &mut Interaction, _: &S) -> Result<Self, Self::Rejection> {
+        req.member.clone().map(Self).ok_or(ExtractMemberError)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("Discord did not send a member on this interaction")]
+pub struct ExtractMemberError;
+
+impl IntoResponse for ExtractMemberError {
+    fn into_response(self) -> twilight_model::http::interaction::InteractionResponse {
+        ErrorReport(self).into_response()
+    }
+}
+
 pub struct CidArgs<T: FromCidArgs>(pub T);
 
 impl<T: FromCidArgs, S: Sync> FromRequest<S> for CidArgs<T> {
     type Rejection = FromCidArgsRejection;
 
     async fn from_request(req: &mut Interaction, _state: &S) -> Result<Self, Self::Rejection> {
-        fn get_custom_id_rpc(custom_id: &str) -> Result<(&str, Vec<&str>), NoNameInRpc> {
-            let mut items_iter = custom_id.split(':');
-            let name = items_iter.next().ok_or(NoNameInRpc)?;
-            let args = items_iter.collect();
-            Ok((name, args))
-        }
-
         let Some(data) = &req.data else {
             return Err(FromCidArgsRejection::NoInteractionData);
         };

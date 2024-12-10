@@ -17,8 +17,7 @@ use tokio_util::sync::CancellationToken;
 use twilight_http::Client;
 use twilight_interactions::command::CreateCommand;
 use twilight_model::{
-    application::interaction::Interaction,
-    http::interaction::InteractionResponse,
+    application::interaction::Interaction, http::interaction::InteractionResponse,
 };
 use valk_utils::get_var;
 
@@ -121,7 +120,7 @@ async fn interaction_handler(
 
     let interaction: Interaction =
         serde_json::from_slice(&body).map_err(|_| RequestError::BadJson)?;
-    let response = interact::handle_interaction(state.clone(), interaction).await;
+    let response = Box::pin(interact::handle_interaction(state.clone(), interaction)).await;
     Ok(Json(response))
 }
 
