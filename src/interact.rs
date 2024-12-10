@@ -6,14 +6,14 @@ use twilight_model::{
     application::interaction::{Interaction, InteractionType},
     channel::message::{
         component::{ActionRow, Button, ButtonStyle, TextInput, TextInputStyle},
-        Component, MessageFlags,
+        AllowedMentions, Component, MessageFlags,
     },
     guild::Permissions,
     http::interaction::{InteractionResponse, InteractionResponseType},
     id::{marker::ChannelMarker, Id},
 };
 use twilight_util::builder::{
-    embed::{EmbedAuthorBuilder, EmbedBuilder, EmbedFieldBuilder},
+    embed::{EmbedBuilder, EmbedFieldBuilder},
     InteractionResponseDataBuilder,
 };
 
@@ -183,22 +183,19 @@ async fn modal_submit(
         EmbedFieldBuilder::new("Message link", modal.data.message_link).build();
     let reason_field = EmbedFieldBuilder::new("Reason", modal.data.reason).build();
 
-    let author =
-        EmbedAuthorBuilder::new(member.nick.or(user.global_name).unwrap_or(user.name)).build();
-
     let embed = EmbedBuilder::new()
         .field(user_field)
         .field(channel_field)
         .field(message_link_field)
         .field(reason_field)
-        .title("A new report has been made")
-        .author(author)
         .build();
 
     state
         .client
         .create_message(target_channel)
+        .content(&format!("Report from <@{}>", user.id))
         .embeds(&[embed])
+        .allowed_mentions(Some(&AllowedMentions::default()))
         .await?;
 
     let data = InteractionResponseDataBuilder::new()
