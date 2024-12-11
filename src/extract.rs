@@ -5,6 +5,8 @@ use twilight_interactions::command::CommandModel;
 use twilight_model::{
     application::interaction::{Interaction, InteractionData, InteractionType},
     guild::PartialMember,
+    id::{marker::UserMarker, Id},
+    user::User,
 };
 
 use crate::interact::ErrorReport;
@@ -67,6 +69,58 @@ impl<S: Sync> FromRequest<S> for ExtractMember {
 pub struct ExtractMemberError;
 
 impl IntoResponse for ExtractMemberError {
+    fn into_response(self) -> twilight_model::http::interaction::InteractionResponse {
+        ErrorReport(self).into_response()
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct UserSelectMenu(pub Vec<User>);
+
+impl<S: Sync> FromRequest<S> for UserSelectMenu {
+    type Rejection = SelectMenuRejection;
+
+    async fn from_request(req: &mut Interaction, _state: &S) -> Result<Self, Self::Rejection> {
+        let Some(data) = &req.data else {
+            return Err(SelectMenuRejection::NoInteractionData);
+        };
+        let InteractionData::MessageComponent(data) = data else {
+            return Err(SelectMenuRejection::WrongInteractionData(req.kind));
+        };
+
+        let mut users = Vec::with_capacity(data.values.len());
+
+        let Some(resolved) = &data.resolved else {
+            return Err(SelectMenuRejection::NoResolvedData);
+        };
+
+        for item in &data.values {
+            let id: Id<UserMarker> = item.parse()?;
+            let Some(user) = resolved.users.get(&id).cloned() else {
+                return Err(SelectMenuRejection::UnknownId(id));
+            };
+            users.push(user);
+        }
+
+        Ok(Self(users))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SelectMenuRejection {
+    #[error("Wrong type of interaction data")]
+    WrongInteractionData(InteractionType),
+    #[error("No interaction data")]
+    NoInteractionData,
+    #[error("No interaction resolved data")]
+    NoResolvedData,
+    #[error("User <@{0}> not found")]
+    UnknownId(Id<UserMarker>),
+    #[error("Arguments could not be parsed")]
+    IdParse(#[from] std::num::ParseIntError),
+}
+
+impl IntoResponse for SelectMenuRejection {
     fn into_response(self) -> twilight_model::http::interaction::InteractionResponse {
         ErrorReport(self).into_response()
     }

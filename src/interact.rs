@@ -5,7 +5,9 @@ use twilight_interactions::command::{CommandModel, CreateCommand};
 use twilight_model::{
     application::interaction::{Interaction, InteractionType},
     channel::message::{
-        component::{ActionRow, Button, ButtonStyle, TextInput, TextInputStyle},
+        component::{
+            ActionRow, Button, ButtonStyle, SelectMenu, SelectMenuType, TextInput, TextInputStyle,
+        },
         AllowedMentions, Component, MessageFlags,
     },
     guild::Permissions,
@@ -18,7 +20,7 @@ use twilight_util::builder::{
 };
 
 use crate::{
-    extract::{CidArgs, ExtractMember, SlashCommand},
+    extract::{CidArgs, ExtractMember, SlashCommand, UserSelectMenu},
     AppState,
 };
 
@@ -33,6 +35,9 @@ pub struct SetupCommand {
     /// The message to send.
     #[command(min_length = 1, max_length = 2000)]
     message: String,
+    /// Placeholder for the user select menu
+    #[command(min_length = 1, max_length = 45)]
+    select_placeholder: String,
     /// The text to put on the button
     #[command(min_length = 1, max_length = 32)]
     button_msg: String,
@@ -85,6 +90,22 @@ async fn app_command(
     SlashCommand(cmd): SlashCommand<SetupCommand>,
 ) -> Result<InteractionResponse, InteractError> {
     let embed = EmbedBuilder::new().description(cmd.message).build();
+
+    let user_select = Component::SelectMenu(SelectMenu {
+        channel_types: None,
+        custom_id: format!("open_form_user:{}", cmd.modmail_channel.get()),
+        default_values: None,
+        disabled: false,
+        kind: SelectMenuType::User,
+        max_values: None,
+        min_values: None,
+        options: None,
+        placeholder: Some(cmd.select_placeholder),
+    });
+    let user_select_row = Component::ActionRow(ActionRow {
+        components: vec![user_select],
+    });
+
     let submit_button = Component::Button(Button {
         custom_id: Some(format!("open_form:{}", cmd.modmail_channel.get())),
         disabled: false,
@@ -101,7 +122,7 @@ async fn app_command(
         .client
         .create_message(cmd.button_channel)
         .embeds(&[embed])
-        .components(&[submit_button_row])
+        .components(&[user_select_row, submit_button_row])
         .await?;
 
     let data = InteractionResponseDataBuilder::new()
@@ -115,7 +136,10 @@ async fn app_command(
     })
 }
 
-async fn msg_component(CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>) -> ModalResponse {
+async fn msg_component(
+    CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>,
+    usm: Option<UserSelectMenu>,
+) -> Result<ModalResponse, InteractError> {
     let components = [
         modal_input(
             "user",
@@ -124,16 +148,16 @@ async fn msg_component(CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>
             TextInputStyle::Short,
         ),
         modal_input(
-            "message_link",
-            "Message link",
-            "e.g. https://discord.com/channels/302094807046684672/768594508287311882/768594834231132222",
-            TextInputStyle::Short,
-        ),
-        modal_input(
             "channel",
             "Channel name",
             "e.g. #minecraft",
             TextInputStyle::Short,
+        ),
+        modal_input(
+            "message_link",
+            "Message link",
+            "e.g. https://discord.com/channels/302094807046684672/768594508287311882/768594834231132222",
+            TextInputStyle::Paragraph,
         ),
         modal_input(
             "reason",
@@ -146,15 +170,27 @@ async fn msg_component(CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>
         Component::ActionRow(ActionRow {
             components: vec![Component::TextInput(c)],
         })
-    })
-    .to_vec();
-    let custom_id = format!("form_submit:{}", target_channel.get());
+    });
+    let (custom_id, components) = if let Some(UserSelectMenu(users)) = usm {
+        let Some(user) = users.first() else {
+            return Err(InteractError::NoUser);
+        };
+        (
+            format!("form_submit:{}:{}", target_channel.get(), user.id),
+            components[1..].to_vec(),
+        )
+    } else {
+        (
+            format!("form_submit:{}", target_channel.get()),
+            components.as_slice().to_vec(),
+        )
+    };
     let title = "ModMail Form".to_string();
-    ModalResponse {
+    Ok(ModalResponse {
         title,
         custom_id,
         components,
-    }
+    })
 }
 
 #[derive(serde::Deserialize)]
