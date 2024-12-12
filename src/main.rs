@@ -138,7 +138,10 @@ enum RequestError {
 impl IntoResponse for RequestError {
     fn into_response(self) -> axum::response::Response {
         match &self {
-            Self::BadSignature => (StatusCode::UNAUTHORIZED, "Bad signature or headers"),
+            Self::BadSignature => (
+                StatusCode::UNAUTHORIZED,
+                "Bad signature or headers, discord check, bug or misconfiguration",
+            ),
             Self::BadJson => (StatusCode::BAD_REQUEST, "Bad JSON body"),
         }
         .into_response()
