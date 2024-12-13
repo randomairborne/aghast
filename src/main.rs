@@ -46,10 +46,10 @@ fn main() {
             .await
             .expect("Failed to deserialize current user")
     });
-
-    let key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] =
-        FromHex::from_hex(bot_info.verify_key).expect("Invalid signature hex");
-    let key = VerifyingKey::from_bytes(&key).expect("Invalid signature bytes");
+    let key = VerifyingKey::from_bytes(
+        &FromHex::from_hex(bot_info.verify_key).expect("Invalid signature hex"),
+    )
+    .expect("Invalid signature bytes");
 
     rt.block_on(async {
         client
