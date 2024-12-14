@@ -136,35 +136,55 @@ async fn app_command(
     })
 }
 
+/// This is a const to allow the msg_component function to format
+const EXAMPLE_MESSAGE_LINK: &str =
+    "e.g. https://discord.com/channels/302094807046684672/768594508287311882/768594834231132222";
+
 async fn msg_component(
     CidArgs((target_channel,)): CidArgs<(Id<ChannelMarker>,)>,
     usm: Option<UserSelectMenu>,
 ) -> Result<ModalResponse, InteractError> {
     let components = [
-        modal_input(
-            "user",
-            "Username or ID of the user you wish to report", // this cannot be made longer
-            "e.g. wumpus or 302094807046684672",
-            TextInputStyle::Short,
-        ),
-        modal_input(
-            "channel",
-            "Channel name",
-            "e.g. #minecraft",
-            TextInputStyle::Short,
-        ),
-        modal_input(
-            "message_link",
-            "Message link",
-            "e.g. https://discord.com/channels/302094807046684672/768594508287311882/768594834231132222",
-            TextInputStyle::Paragraph,
-        ),
-        modal_input(
-            "reason",
-            "Reason for reporting (what happened?)",
-            "e.g. User is being overly rude",
-            TextInputStyle::Paragraph,
-        ),
+        TextInput {
+            custom_id: "user".into(),
+            label: "Username or ID of the user you wish to report".into(), // this cannot be made longer
+            max_length: Some(1000),
+            min_length: None,
+            placeholder: Some("e.g. wumpus or 302094807046684672".into()),
+            required: Some(true),
+            style: TextInputStyle::Short,
+            value: None,
+        },
+        TextInput {
+            custom_id: "channel".into(),
+            label: "Channel name".into(),
+            max_length: Some(128),
+            min_length: None,
+            placeholder: Some("e.g. #minecraft".into()),
+            required: Some(true),
+            style: TextInputStyle::Short,
+            value: None,
+        },
+        TextInput {
+            custom_id: "message_link".into(),
+            label: "Message link".into(),
+            max_length: Some(128),
+            min_length: None,
+            placeholder: Some(EXAMPLE_MESSAGE_LINK.into()),
+            required: Some(false),
+            style: TextInputStyle::Paragraph,
+            value: None,
+        },
+        TextInput {
+            custom_id: "reason".into(),
+            label: "Reason for reporting (what happened, in detail)".into(),
+            max_length: Some(128),
+            min_length: None,
+            placeholder: Some("e.g. User is being overly rude".into()),
+            required: Some(true),
+            style: TextInputStyle::Paragraph,
+            value: None,
+        },
     ]
     .map(|c| {
         Component::ActionRow(ActionRow {
@@ -253,24 +273,6 @@ impl IntoResponse for PingPong {
             kind: InteractionResponseType::Pong,
             data: None,
         }
-    }
-}
-
-fn modal_input(
-    id: impl Into<String>,
-    label: impl Into<String>,
-    placeholder: impl Into<String>,
-    style: TextInputStyle,
-) -> TextInput {
-    TextInput {
-        custom_id: id.into(),
-        label: label.into(),
-        max_length: Some(1000),
-        min_length: None,
-        placeholder: Some(placeholder.into()),
-        required: Some(true),
-        style,
-        value: None,
     }
 }
 
