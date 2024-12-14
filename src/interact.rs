@@ -136,7 +136,7 @@ async fn app_command(
     })
 }
 
-/// This is a const to allow the msg_component function to format
+/// This is a const to allow the `msg_component` function to format
 const EXAMPLE_MESSAGE_LINK: &str =
     "e.g. https://discord.com/channels/302094807046684672/768594508287311882/768594834231132222";
 
