@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.7", default-features = false, features = ["http2", "http1", "tokio", "json"] }
+axum = { version = "0.8", default-features = false, features = ["http2", "http1", "tokio", "json"] }
 
 tokio = { version = "1", features = ["rt", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
