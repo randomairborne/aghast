@@ -89,7 +89,7 @@ fn main() {
         eprintln!("Shutting down");
         cancel.cancel();
         main.await
-            .expect("Server panicked")
+            .expect("Server task panicked")
             .expect("Could not start server");
     });
 }
