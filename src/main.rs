@@ -78,7 +78,6 @@ fn main() {
             .into_future(),
     )
     .expect("Could not run server");
-
 }
 
 async fn interaction_handler(
