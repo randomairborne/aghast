@@ -1,6 +1,6 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::module_name_repetitions)]
-use std::{fmt::Debug, future::IntoFuture, net::SocketAddr, pin::pin, sync::Arc};
+use std::{fmt::Debug, future::IntoFuture, net::SocketAddr, sync::Arc};
 
 use axum::{
     body::Bytes,
@@ -13,7 +13,6 @@ use axum::{
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hex::FromHex;
 use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
 use twilight_http::Client;
 use twilight_interactions::command::CreateCommand;
 use twilight_model::{
@@ -34,8 +33,6 @@ fn main() {
         .unwrap();
 
     let client = Client::new(token);
-
-    let cancel = CancellationToken::new();
 
     let bot_info = rt.block_on(async {
         client
@@ -73,25 +70,14 @@ fn main() {
         .block_on(TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 8080))))
         .expect("Failed to bind to 8080");
 
-    let axum_cancel = cancel.clone();
-    let mut main = rt.spawn(async move {
-        axum::serve(tcp, router)
-            .with_graceful_shutdown(axum_cancel.cancelled_owned())
-            .await
-    });
-
     eprintln!("Event loop started");
 
-    rt.block_on(async move {
-        // we need to do all these things in this order so that we tell everything to shut down,
-        // then wait for it to shut down, then clean up
-        futures_util::future::select(pin!(vss::shutdown_signal()), pin!(&mut main)).await;
-        eprintln!("Shutting down");
-        cancel.cancel();
-        main.await
-            .expect("Server task panicked")
-            .expect("Could not start server");
-    });
+    rt.block_on(
+        axum::serve(tcp, router)
+            .with_graceful_shutdown(vss::shutdown_signal())
+            .into_future(),
+    )
+    .expect("Could not run server");
 }
 
 async fn interaction_handler(

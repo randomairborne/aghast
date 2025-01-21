@@ -7,8 +7,6 @@ edition = "2021"
 axum = { version = "0.8", default-features = false, features = ["http2", "http1", "tokio", "json"] }
 
 tokio = { version = "1", features = ["rt", "net"] }
-tokio-util = { version = "0.7", features = ["rt"] }
-futures-util = { version = "0.3", default-features = false }
 
 twilight-http = { version = "0.16.0-rc.1", default-features = false, features = ["rustls-webpki-roots", "hickory"] }
 twilight-util = { version = "0.16.0-rc.1", features = ["builder"] }
