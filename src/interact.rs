@@ -113,6 +113,7 @@ async fn app_command(
         label: Some(cmd.button_msg),
         style: ButtonStyle::Success,
         url: None,
+        sku_id: None,
     });
     let submit_button_row = Component::ActionRow(ActionRow {
         components: vec![submit_button],
