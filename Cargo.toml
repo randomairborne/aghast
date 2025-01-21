@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.8", default-features = false, features = ["http2", "http1", "tokio", "json"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio", "json"] }
 
 tokio = { version = "1", features = ["rt", "net"] }
 
-twilight-http = { version = "0.16.0", default-features = false, features = ["rustls-webpki-roots", "hickory"] }
-twilight-util = { version = "0.16.0", features = ["builder"] }
-twilight-interactions = "0.16.0"
-twilight-model = "0.16.0"
+twilight-http = { version = "0.16", default-features = false, features = ["rustls-webpki-roots", "rustls-aws_lc_rs", "hickory"] }
+twilight-util = { version = "0.16", features = ["builder"] }
+twilight-interactions = "0.16"
+twilight-model = "0.16"
 niloecl = { version = "0.1", features = ["modal_submit"] }
 
 serde = { version = "1", features = ["derive"] }
