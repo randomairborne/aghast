@@ -9,7 +9,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "http2"
 tokio = { version = "1", features = ["rt", "net"] }
 
 twilight-http = { version = "0.16", default-features = false, features = ["rustls-webpki-roots", "rustls-aws_lc_rs", "hickory"] }
-twilight-util = { version = "0.16", features = ["builder"] }
+twilight-util = { version = "0.17", features = ["builder"] }
 twilight-interactions = "0.16"
 twilight-model = "0.16"
 niloecl = { version = "0.1", features = ["modal_submit"] }
