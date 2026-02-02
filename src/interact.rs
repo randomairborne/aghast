@@ -6,7 +6,8 @@ use twilight_model::{
     application::interaction::{Interaction, InteractionType},
     channel::message::{
         component::{
-            ActionRow, Button, ButtonStyle, SelectMenu, SelectMenuType, TextInput, TextInputStyle,
+            ActionRow, Button, ButtonStyle, Label, SelectMenu, SelectMenuType, TextInput,
+            TextInputStyle,
         },
         AllowedMentions, Component, MessageFlags,
     },
@@ -92,6 +93,8 @@ async fn app_command(
     let embed = EmbedBuilder::new().description(cmd.message).build();
 
     let user_select = Component::SelectMenu(SelectMenu {
+        id: None,
+        required: None,
         channel_types: None,
         custom_id: format!("open_form_user:{}", cmd.modmail_channel.get()),
         default_values: None,
@@ -103,10 +106,12 @@ async fn app_command(
         placeholder: Some(cmd.select_placeholder),
     });
     let user_select_row = Component::ActionRow(ActionRow {
+        id: None,
         components: vec![user_select],
     });
 
     let submit_button = Component::Button(Button {
+        id: None,
         custom_id: Some(format!("open_form:{}", cmd.modmail_channel.get())),
         disabled: false,
         emoji: None,
@@ -116,6 +121,7 @@ async fn app_command(
         sku_id: None,
     });
     let submit_button_row = Component::ActionRow(ActionRow {
+        id: None,
         components: vec![submit_button],
     });
 
@@ -146,52 +152,76 @@ async fn msg_component(
     usm: Option<UserSelectMenu>,
 ) -> Result<ModalResponse, InteractError> {
     let components = [
-        TextInput {
-            custom_id: "user".into(),
-            label: "Username or ID of the user you wish to report".into(), // this cannot be made longer
-            max_length: Some(1000),
-            min_length: None,
-            placeholder: Some("e.g. wumpus or 302094807046684672".into()),
-            required: Some(true),
-            style: TextInputStyle::Short,
-            value: None,
+        Label {
+            id: None,
+            label: "Username or ID of the user you wish to report".into(), // exact length limit
+            description: None,
+            component: Box::new(Component::TextInput(TextInput {
+                id: None,
+                custom_id: "user".into(),
+                #[expect(deprecated)]
+                label: None,
+                max_length: Some(1000),
+                min_length: None,
+                placeholder: Some("e.g. wumpus or 302094807046684672".into()),
+                required: Some(true),
+                style: TextInputStyle::Short,
+                value: None,
+            })),
         },
-        TextInput {
-            custom_id: "channel".into(),
+        Label {
+            id: None,
             label: "Channel name".into(),
-            max_length: Some(128),
-            min_length: None,
-            placeholder: Some("e.g. #minecraft".into()),
-            required: Some(true),
-            style: TextInputStyle::Short,
-            value: None,
+            description: None,
+            component: Box::new(Component::TextInput(TextInput {
+                id: None,
+                custom_id: "channel".into(),
+                #[expect(deprecated)]
+                label: None,
+                max_length: Some(128),
+                min_length: None,
+                placeholder: Some("e.g. #minecraft".into()),
+                required: Some(true),
+                style: TextInputStyle::Short,
+                value: None,
+            })),
         },
-        TextInput {
-            custom_id: "message_link".into(),
+        Label {
+            id: None,
             label: "Message link".into(),
-            max_length: Some(128),
-            min_length: None,
-            placeholder: Some(EXAMPLE_MESSAGE_LINK.into()),
-            required: Some(false),
-            style: TextInputStyle::Paragraph,
-            value: None,
+            description: None,
+            component: Box::new(Component::TextInput(TextInput {
+                id: None,
+                custom_id: "message_link".into(),
+                #[expect(deprecated)]
+                label: None,
+                max_length: Some(128),
+                min_length: None,
+                placeholder: Some(EXAMPLE_MESSAGE_LINK.into()),
+                required: Some(false),
+                style: TextInputStyle::Paragraph,
+                value: None,
+            })),
         },
-        TextInput {
-            custom_id: "reason".into(),
-            label: "Reason for reporting (what happened, in detail)".into(),
-            max_length: Some(128),
-            min_length: None,
-            placeholder: Some("e.g. User is being overly rude".into()),
-            required: Some(true),
-            style: TextInputStyle::Paragraph,
-            value: None,
+        Label {
+            id: None,
+            label: "Reason for reporting".into(),
+            description: Some("Describe in detail what happened".into()),
+            component: Box::new(Component::TextInput(TextInput {
+                id: None,
+                custom_id: "reason".into(),
+                #[expect(deprecated)]
+                label: None,
+                max_length: Some(128),
+                min_length: None,
+                placeholder: Some("e.g. User is being overly rude".into()),
+                required: Some(true),
+                style: TextInputStyle::Paragraph,
+                value: None,
+            })),
         },
     ]
-    .map(|c| {
-        Component::ActionRow(ActionRow {
-            components: vec![Component::TextInput(c)],
-        })
-    });
+    .map(Component::Label);
     let (custom_id, components) = if let Some(UserSelectMenu(users)) = usm {
         let Some(user) = users.first() else {
             return Err(InteractError::NoUser);
